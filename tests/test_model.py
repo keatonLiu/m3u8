@@ -24,7 +24,7 @@ from m3u8.model import (
     Segment,
     SessionData,
     denormalize_attribute,
-    find_key,
+    find_keys,
 )
 from m3u8.protocol import ext_x_part, ext_x_preload_hint, ext_x_start
 
@@ -305,25 +305,25 @@ def test_keys_on_clear_playlist():
     obj = m3u8.M3U8(playlists.SIMPLE_PLAYLIST)
 
     assert len(obj.keys) == 1
-    assert obj.keys[0] is None
+    assert obj.keys[0] is ()
 
 
 def test_keys_on_simple_encrypted_playlist():
     obj = m3u8.M3U8(playlists.PLAYLIST_WITH_ENCRYPTED_SEGMENTS)
 
     assert len(obj.keys) == 1
-    assert obj.keys[0].uri == "https://priv.example.com/key.php?r=52"
+    assert obj.keys[0][0].uri == "https://priv.example.com/key.php?r=52"
 
 
 def test_key_attribute():
     obj = m3u8.M3U8(playlists.SIMPLE_PLAYLIST)
-    data = {"keys": [{"method": "AES-128", "uri": "/key", "iv": "foobar"}]}
+    data = {"keys": [({"method": "AES-128", "uri": "/key", "iv": "foobar"},)]}
     mock_parser_data(obj, data)
 
-    assert "Key" == obj.keys[0].__class__.__name__
-    assert "AES-128" == obj.keys[0].method
-    assert "/key" == obj.keys[0].uri
-    assert "foobar" == obj.keys[0].iv
+    assert "Key" == obj.keys[0][0].__class__.__name__
+    assert "AES-128" == obj.keys[0][0].method
+    assert "/key" == obj.keys[0][0].uri
+    assert "foobar" == obj.keys[0][0].iv
 
 
 def test_key_attribute_on_none():
@@ -335,11 +335,10 @@ def test_key_attribute_on_none():
 
 def test_key_attribute_without_initialization_vector():
     obj = m3u8.M3U8(playlists.SIMPLE_PLAYLIST)
-    mock_parser_data(obj, {"keys": [{"method": "AES-128", "uri": "/key"}]})
-
-    assert "AES-128" == obj.keys[0].method
-    assert "/key" == obj.keys[0].uri
-    assert None is obj.keys[0].iv
+    mock_parser_data(obj, {"keys": [({"method": "AES-128", "uri": "/key"},) ]})
+    assert "AES-128" == obj.keys[0][0].method
+    assert "/key" == obj.keys[0][0].uri
+    assert None is obj.keys[0][0].iv
 
 
 def test_session_keys_on_clear_playlist():
@@ -459,10 +458,10 @@ def test_segment_attribute_with_multiple_keys():
     )
 
     segments = obj.segments
-    assert segments[0].key.uri == "/hls-key/key.bin"
-    assert segments[1].key.uri == "/hls-key/key.bin"
-    assert segments[4].key.uri == "/hls-key/key2.bin"
-    assert segments[5].key.uri == "/hls-key/key2.bin"
+    assert segments[0].keys[0].uri == "/hls-key/key.bin"
+    assert segments[1].keys[0].uri == "/hls-key/key.bin"
+    assert segments[4].keys[0].uri == "/hls-key/key2.bin"
+    assert segments[5].keys[0].uri == "/hls-key/key2.bin"
 
 
 def test_segment_title_dumps():
@@ -979,22 +978,22 @@ def test_should_dump_multiple_session_data():
 def test_length_segments_by_key():
     obj = m3u8.M3U8(playlists.PLAYLIST_WITH_MULTIPLE_KEYS_UNENCRYPTED_AND_ENCRYPTED)
 
-    assert len(obj.segments.by_key(obj.keys[0])) == 2
-    assert len(obj.segments.by_key(obj.keys[1])) == 4
-    assert len(obj.segments.by_key(obj.keys[2])) == 2
+    assert len(obj.segments.by_keys(obj.keys[0])) == 2
+    assert len(obj.segments.by_keys(obj.keys[1])) == 4
+    assert len(obj.segments.by_keys(obj.keys[2])) == 2
 
 
 def test_list_segments_by_key():
     obj = m3u8.M3U8(playlists.PLAYLIST_WITH_MULTIPLE_KEYS_UNENCRYPTED_AND_ENCRYPTED)
 
     # unencrypted segments
-    segments = obj.segments.by_key(None)
+    segments = obj.segments.by_keys(())
     expected = "../../../../hls/streamNum82400.ts\n../../../../hls/streamNum82401.ts"
     output = [segment.uri for segment in segments]
     assert "\n".join(output).strip() == expected.strip()
 
     # segments for last key
-    segments = obj.segments.by_key(obj.keys[2])
+    segments = obj.segments.by_keys(obj.keys[2])
     expected = "../../../../hls/streamNum82404.ts\n../../../../hls/streamNum82405.ts"
     output = [segment.uri for segment in segments]
     assert "\n".join(output).strip() == expected.strip()
@@ -1004,11 +1003,11 @@ def test_replace_segment_key():
     obj = m3u8.M3U8(playlists.PLAYLIST_WITH_MULTIPLE_KEYS_UNENCRYPTED_AND_ENCRYPTED)
 
     # Replace unencrypted segments with new key
-    new_key = Key(
+    new_keys = (Key(
         "AES-128", None, "/hls-key/key0.bin", iv="0Xcafe8f758ca555115584bb5b3c687f52"
-    )
-    for segment in obj.segments.by_key(None):
-        segment.key = new_key
+    ),)
+    for segment in obj.segments.by_keys(()):
+        segment.keys = new_keys
 
     # Check dump
     expected = (
@@ -1196,11 +1195,11 @@ def test_m3u8_should_propagate_base_uri_to_key():
     with open(playlists.RELATIVE_PLAYLIST_FILENAME) as f:
         content = f.read()
     obj = m3u8.M3U8(content, base_uri="/any/path")
-    assert "../key.bin" == obj.keys[0].uri
-    assert "/any/key.bin" == obj.keys[0].absolute_uri
+    assert "../key.bin" == obj.keys[0][0].uri
+    assert "/any/key.bin" == obj.keys[0][0].absolute_uri
     obj.base_uri = "/any/where/"
-    assert "../key.bin" == obj.keys[0].uri
-    assert "/any/key.bin" == obj.keys[0].absolute_uri
+    assert "../key.bin" == obj.keys[0][0].uri
+    assert "/any/key.bin" == obj.keys[0][0].absolute_uri
 
 
 def test_m3u8_should_propagate_base_uri_to_session_key():
@@ -1315,8 +1314,8 @@ def test_attribute_denormaliser():
 def test_find_key_throws_when_no_match():
     threw = False
     try:
-        find_key(
-            {"method": "AES-128", "iv": 0x12345678, "uri": "http://1.2/"},
+        find_keys(
+            ({"method": "AES-128", "iv": 0x12345678, "uri": "http://1.2/"}),
             [
                 # deliberately empty
             ],

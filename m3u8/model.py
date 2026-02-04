@@ -155,12 +155,12 @@ class M3U8:
     )
 
     def __init__(
-        self,
-        content=None,
-        base_path=None,
-        base_uri=None,
-        strict=False,
-        custom_tags_parser=None,
+            self,
+            content=None,
+            base_path=None,
+            base_uri=None,
+            strict=False,
+            custom_tags_parser=None,
     ):
         if content is not None:
             self.data = parse(content, strict, custom_tags_parser)
@@ -175,10 +175,12 @@ class M3U8:
         self.base_path = base_path
 
     def _initialize_attributes(self):
-        self.keys = [
-            Key(base_uri=self.base_uri, **params) if params else None
-            for params in self.data.get("keys", [])
-        ]
+        self.keys = []
+        for keys in self.data.get("keys", []):
+            self.keys.append(tuple(
+                [Key(base_uri=self.base_uri, **params) for params in keys]
+            ))
+
         self.segment_map = [
             InitializationSection(base_uri=self.base_uri, **params) if params else None
             for params in self.data.get("segment_map", [])
@@ -187,7 +189,7 @@ class M3U8:
             [
                 Segment(
                     base_uri=self.base_uri,
-                    keyobject=find_key(segment.get("key", {}), self.keys),
+                    keyobjects=find_keys(segment.get("keys", []), self.keys),
                     **segment,
                 )
                 for segment in self.data.get("segments", [])
@@ -201,10 +203,11 @@ class M3U8:
             segment.media_sequence = i
 
         self.files = []
-        for key in self.keys:
+        for keys in self.keys:
             # Avoid None key, it could be the first one, don't repeat them
-            if key and key.uri not in self.files:
-                self.files.append(key.uri)
+            for key in keys:
+                if key.uri not in self.files:
+                    self.files.append(key.uri)
         self.files.extend(self.segments.uri)
 
         self.media = MediaList(
@@ -299,8 +302,8 @@ class M3U8:
         self.segments.base_uri = new_base_uri
         self.rendition_reports.base_uri = new_base_uri
         self.image_playlists.base_uri = new_base_uri
-        for key in self.keys:
-            if key:
+        for keys in self.keys:
+            for key in keys:
                 key.base_uri = new_base_uri
         for key in self.session_keys:
             if key:
@@ -322,8 +325,8 @@ class M3U8:
     def _update_base_path(self):
         if self._base_path is None:
             return
-        for key in self.keys:
-            if key:
+        for keys in self.keys:
+            for key in keys:
                 key.base_path = self._base_path
         for key in self.session_keys:
             if key:
@@ -523,33 +526,33 @@ class Segment(BasePathMixin):
     """
 
     def __init__(
-        self,
-        uri=None,
-        base_uri=None,
-        program_date_time=None,
-        current_program_date_time=None,
-        duration=None,
-        title=None,
-        bitrate=None,
-        byterange=None,
-        cue_out=False,
-        cue_out_start=False,
-        cue_out_explicitly_duration=False,
-        cue_in=False,
-        discontinuity=False,
-        key=None,
-        scte35=None,
-        oatcls_scte35=None,
-        scte35_duration=None,
-        scte35_elapsedtime=None,
-        asset_metadata=None,
-        keyobject=None,
-        parts=None,
-        init_section=None,
-        dateranges=None,
-        gap_tag=None,
-        media_sequence=None,
-        custom_parser_values=None,
+            self,
+            uri=None,
+            base_uri=None,
+            program_date_time=None,
+            current_program_date_time=None,
+            duration=None,
+            title=None,
+            bitrate=None,
+            byterange=None,
+            cue_out=False,
+            cue_out_start=False,
+            cue_out_explicitly_duration=False,
+            cue_in=False,
+            discontinuity=False,
+            keys=None,
+            scte35=None,
+            oatcls_scte35=None,
+            scte35_duration=None,
+            scte35_elapsedtime=None,
+            asset_metadata=None,
+            keyobjects=(),
+            parts=None,
+            init_section=None,
+            dateranges=None,
+            gap_tag=None,
+            media_sequence=None,
+            custom_parser_values=None,
     ):
         self.media_sequence = media_sequence
         self.uri = uri
@@ -570,7 +573,8 @@ class Segment(BasePathMixin):
         self.scte35_duration = scte35_duration
         self.scte35_elapsedtime = scte35_elapsedtime
         self.asset_metadata = asset_metadata
-        self.key = keyobject
+        self._keys = ()
+        self.keys = keyobjects
         self.parts = PartialSegmentList(
             [PartialSegment(base_uri=self._base_uri, **partial) for partial in parts]
             if parts
@@ -586,20 +590,32 @@ class Segment(BasePathMixin):
         self.gap_tag = gap_tag
         self.custom_parser_values = custom_parser_values or {}
 
+    @property
+    def keys(self):
+        return self._keys
+
+    @keys.setter
+    def keys(self, value):
+        if not isinstance(value, tuple):
+            raise ValueError("keys must be a tuple")
+        self._keys = value
+
     def add_part(self, part):
         self.parts.append(part)
 
     def dumps(self, last_segment, timespec="milliseconds", infspec="auto"):
         output = []
 
-        if last_segment and self.key != last_segment.key:
-            output.append(str(self.key))
-            output.append("\n")
+        if last_segment and self.keys != last_segment.keys:
+            for key in self.keys:
+                output.append(str(key))
+                output.append("\n")
         else:
             # The key must be checked anyway now for the first segment
-            if self.key and last_segment is None:
-                output.append(str(self.key))
-                output.append("\n")
+            if self.keys and last_segment is None:
+                for key in self.keys:
+                    output.append(str(key))
+                    output.append("\n")
 
         if self.init_section:
             if (not last_segment) or (self.init_section != last_segment.init_section):
@@ -722,8 +738,8 @@ class SegmentList(list, GroupedBasePathMixin):
     def uri(self):
         return [seg.uri for seg in self]
 
-    def by_key(self, key):
-        return [segment for segment in self if segment.key == key]
+    def by_keys(self, keys):
+        return [segment for segment in self if segment.keys == keys]
 
 
 class PartialSegment(BasePathMixin):
@@ -766,17 +782,17 @@ class PartialSegment(BasePathMixin):
     """
 
     def __init__(
-        self,
-        base_uri,
-        uri,
-        duration,
-        program_date_time=None,
-        current_program_date_time=None,
-        byterange=None,
-        independent=None,
-        gap=None,
-        dateranges=None,
-        gap_tag=None,
+            self,
+            base_uri,
+            uri,
+            duration,
+            program_date_time=None,
+            current_program_date_time=None,
+            byterange=None,
+            independent=None,
+            gap=None,
+            dateranges=None,
+            gap_tag=None,
     ):
         self.base_uri = base_uri
         self.uri = uri
@@ -848,14 +864,14 @@ class Key(BasePathMixin):
     tag = ext_x_key
 
     def __init__(
-        self,
-        method,
-        base_uri,
-        uri=None,
-        iv=None,
-        keyformat=None,
-        keyformatversions=None,
-        **kwargs,
+            self,
+            method,
+            base_uri,
+            uri=None,
+            iv=None,
+            keyformat=None,
+            keyformatversions=None,
+            **kwargs,
     ):
         self.method = method
         self.uri = uri
@@ -884,12 +900,12 @@ class Key(BasePathMixin):
         if not other:
             return False
         return (
-            self.method == other.method
-            and self.uri == other.uri
-            and self.iv == other.iv
-            and self.base_uri == other.base_uri
-            and self.keyformat == other.keyformat
-            and self.keyformatversions == other.keyformatversions
+                self.method == other.method
+                and self.uri == other.uri
+                and self.iv == other.iv
+                and self.base_uri == other.base_uri
+                and self.keyformat == other.keyformat
+                and self.keyformatversions == other.keyformatversions
         )
 
     def __ne__(self, other):
@@ -930,9 +946,9 @@ class InitializationSection(BasePathMixin):
         if not other:
             return False
         return (
-            self.uri == other.uri
-            and self.byterange == other.byterange
-            and self.base_uri == other.base_uri
+                self.uri == other.uri
+                and self.byterange == other.byterange
+                and self.base_uri == other.base_uri
         )
 
     def __ne__(self, other):
@@ -1068,9 +1084,9 @@ class IFramePlaylist(BasePathMixin):
             )
         if self.iframe_stream_info.resolution:
             res = (
-                str(self.iframe_stream_info.resolution[0])
-                + "x"
-                + str(self.iframe_stream_info.resolution[1])
+                    str(self.iframe_stream_info.resolution[0])
+                    + "x"
+                    + str(self.iframe_stream_info.resolution[1])
             )
             iframe_stream_inf.append("RESOLUTION=" + res)
         if self.iframe_stream_info.codecs:
@@ -1191,22 +1207,22 @@ class Media(BasePathMixin):
     """
 
     def __init__(
-        self,
-        uri=None,
-        type=None,
-        group_id=None,
-        language=None,
-        name=None,
-        default=None,
-        autoselect=None,
-        forced=None,
-        characteristics=None,
-        channels=None,
-        stable_rendition_id=None,
-        assoc_language=None,
-        instream_id=None,
-        base_uri=None,
-        **extras,
+            self,
+            uri=None,
+            type=None,
+            group_id=None,
+            language=None,
+            name=None,
+            default=None,
+            autoselect=None,
+            forced=None,
+            characteristics=None,
+            channels=None,
+            stable_rendition_id=None,
+            assoc_language=None,
+            instream_id=None,
+            base_uri=None,
+            **extras,
     ):
         self.base_uri = base_uri
         self.uri = uri
@@ -1322,12 +1338,12 @@ class RenditionReportList(list, GroupedBasePathMixin):
 
 class ServerControl:
     def __init__(
-        self,
-        can_skip_until=None,
-        can_block_reload=None,
-        hold_back=None,
-        part_hold_back=None,
-        can_skip_dateranges=None,
+            self,
+            can_skip_until=None,
+            can_block_reload=None,
+            hold_back=None,
+            part_hold_back=None,
+            can_skip_dateranges=None,
     ):
         self.can_skip_until = can_skip_until
         self.can_block_reload = can_block_reload
@@ -1394,7 +1410,7 @@ class PartInformation:
 
 class PreloadHint(BasePathMixin):
     def __init__(
-        self, type, base_uri, uri, byterange_start=None, byterange_length=None
+            self, type, base_uri, uri, byterange_start=None, byterange_length=None
     ):
         self.hint_type = type
         self.base_uri = base_uri
@@ -1576,9 +1592,9 @@ class ImagePlaylist(BasePathMixin):
             )
         if self.image_stream_info.resolution:
             res = (
-                str(self.image_stream_info.resolution[0])
-                + "x"
-                + str(self.image_stream_info.resolution[1])
+                    str(self.image_stream_info.resolution[0])
+                    + "x"
+                    + str(self.image_stream_info.resolution[1])
             )
             image_stream_inf.append("RESOLUTION=" + res)
         if self.image_stream_info.codecs:
@@ -1628,19 +1644,25 @@ class Tiles(BasePathMixin):
         return self.dumps()
 
 
-def find_key(keydata, keylist):
-    if not keydata:
-        return None
-    for key in keylist:
-        if key:
-            # Check the intersection of keys and values
+def find_keys(keys, keylist) -> tuple["Key"]:
+    if not keys:
+        return tuple()
+    for key_objects in keylist:
+        if len(key_objects) != len(keys):
+            continue
+
+        match_keys = []
+        for i in range(len(keys)):
             if (
-                keydata.get("uri", None) == key.uri
-                and keydata.get("method", "NONE") == key.method
-                and keydata.get("iv", None) == key.iv
+                    key_objects[i].uri == keys[i].get("uri", None)
+                    and key_objects[i].method == keys[i].get("method", "NONE")
+                    and key_objects[i].iv == keys[i].get("iv", None)
             ):
-                return key
-    raise KeyError("No key found for key data")
+                match_keys.append(key_objects[i])
+        if len(match_keys) == len(keys):
+            return tuple(match_keys)
+
+    raise KeyError("No matching keys found")
 
 
 def denormalize_attribute(attribute):

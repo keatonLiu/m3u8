@@ -13,7 +13,6 @@ try:
 except ImportError:
     pass
 
-
 from m3u8 import protocol, version_matching
 
 """
@@ -70,8 +69,9 @@ def parse(content, strict=False, custom_tags_parser=None):
     state = {
         "expect_segment": False,
         "expect_playlist": False,
-        "current_key": None,
+        "current_keys": [],
         "current_segment_map": None,
+        "continuous_key": False,
     }
 
     lines = string_to_lines(content)
@@ -256,9 +256,13 @@ def _parse_key(line, data, state, **kwargs):
         name, value = param.split("=", 1)
         key[normalize_attribute(name)] = remove_quotes(value)
 
-    state["current_key"] = key
-    if key not in data["keys"]:
-        data["keys"].append(key)
+    if state["continuous_key"]:
+        state["current_keys"].append(key)
+    else:
+        state["current_keys"] = [key]
+    state["continuous_key"] = True
+    # if key not in data["keys"]:
+    #     data["keys"].append(key)
 
 
 def _parse_extinf(line, state, lineno, strict, **kwargs):
@@ -301,12 +305,10 @@ def _parse_ts_chunk(line, data, state, **kwargs):
     segment["asset_metadata"] = scte_op("asset_metadata", None)
 
     segment["discontinuity"] = state.pop("discontinuity", False)
-    if state.get("current_key"):
-        segment["key"] = state["current_key"]
-    else:
-        # For unencrypted segments, the initial key would be None
-        if None not in data["keys"]:
-            data["keys"].append(None)
+    segment["keys"] = tuple(state["current_keys"])
+    state["continuous_key"] = False
+    if tuple(state["current_keys"]) not in data["keys"]:
+        data["keys"].append(tuple(state["current_keys"]))
     if state.get("current_segment_map"):
         segment["init_section"] = state["current_segment_map"]
     segment["dateranges"] = state.pop("dateranges", None)
@@ -524,7 +526,7 @@ def _parse_simple_parameter_raw_value(line, cast_to=str, normalize=False, **kwar
 
 
 def _parse_and_set_simple_parameter_raw_value(
-    line, data, cast_to=str, normalize=False, **kwargs
+        line, data, cast_to=str, normalize=False, **kwargs
 ):
     param, value = _parse_simple_parameter_raw_value(line, cast_to, normalize)
     data[param] = value
