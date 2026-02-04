@@ -51,16 +51,16 @@ class M3U8:
        used or not.
 
        1. No encryption.
-       `keys` list will only contain a `None` element.
+       `keys` list will only contain an empty tuple.
 
        2. Encryption enabled for all segments.
-       `keys` list will contain the key used for the segments.
+       `keys` list will contain the keys used for the segments.
 
        3. No encryption for first element(s), encryption is applied afterwards
-       `keys` list will contain `None` and the key used for the rest of segments.
+       `keys` list will contain an empty tuple and the keys used for the rest of segments.
 
        4. Multiple keys used during the m3u8 manifest.
-       `keys` list will contain the key used for each set of segments.
+       `keys` list will contain the keys used for each set of segments.
 
      `session_keys`
        Returns the list of `SessionKey` objects used to encrypt multiple segments from m3u8.
@@ -173,6 +173,7 @@ class M3U8:
 
         self._initialize_attributes()
         self.base_path = base_path
+        self.keys: list[tuple[Key, ...]] = []
 
     def _initialize_attributes(self):
         self.keys = []
