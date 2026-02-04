@@ -173,7 +173,6 @@ class M3U8:
 
         self._initialize_attributes()
         self.base_path = base_path
-        self.keys: list[tuple[Key, ...]] = []
 
     def _initialize_attributes(self):
         self.keys = []

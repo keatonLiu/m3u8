@@ -163,4 +163,5 @@ def test_windows_paths():
 
 def test_multi_keys():
     obj = m3u8.load("tests/playlists/multi_keys.m3u8")
+    print(obj.keys)
     obj.dump("local/output/multi_keys_output.m3u8")
